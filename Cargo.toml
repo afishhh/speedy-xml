@@ -1,11 +1,14 @@
 [package]
 name = "speedy-xml"
+description = "A RapidXML-compatible XML parser"
+repository = "https://github.com/afishhh/speedy-xml"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+keywords = ["xml", "parser", "writer"]
+categories = ["encoding", "parsing", "parser-implementations"]
+authors = ["afishhh"]
+license = "MIT"
+publish = true
 
 [dependencies]
 memchr = "2"
-serde = "1"
-
-[dev-dependencies]
-serde = { version = "1", features = ["derive"] }
