@@ -6,7 +6,9 @@ use std::{
 use crate::{
     escape::{comment_escape, content_escape},
     lut::{is_invalid_attribute_name, is_invalid_name},
-    reader::{self, AttributeEvent, AttributeQuote, CDataEvent, CommentEvent, DoctypeEvent, TextEvent},
+    reader::{
+        self, AttributeEvent, AttributeQuote, CDataEvent, CommentEvent, DoctypeEvent, TextEvent,
+    },
 };
 
 #[non_exhaustive]
@@ -149,7 +151,12 @@ impl<W: Write> Writer<W> {
         Ok(())
     }
 
-    pub fn write_raw_attribute(&mut self, name: &str, quote: AttributeQuote, value: &str) -> Result<(), Error> {
+    pub fn write_raw_attribute(
+        &mut self,
+        name: &str,
+        quote: AttributeQuote,
+        value: &str,
+    ) -> Result<(), Error> {
         if self.depth_and_flags & 1 == 0 {
             return Err(Error::AttributeOutsideTag);
         }
@@ -260,7 +267,8 @@ impl<W: Write> Writer<W> {
 
     pub fn write_comment(&mut self, content: &str) -> Result<(), Error> {
         let escaped = comment_escape(content);
-        self.write_raw_comment_unchecked(&escaped).map_err(Into::into)
+        self.write_raw_comment_unchecked(&escaped)
+            .map_err(Into::into)
     }
 
     pub fn write_attribute_event(&mut self, attr: &AttributeEvent) -> Result<(), Error> {
@@ -339,7 +347,10 @@ fn reader_writer_roundtrip() {
 
     for &input in CASES {
         let mut writer = Writer::new(std::io::Cursor::new(Vec::new()));
-        let mut reader = reader::Reader::with_options(input, reader::Options::default().allow_top_level_text(true));
+        let mut reader = reader::Reader::with_options(
+            input,
+            reader::Options::default().allow_top_level_text(true),
+        );
 
         while let Some(event) = reader.next().transpose().unwrap() {
             dbg!(event);

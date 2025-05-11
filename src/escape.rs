@@ -111,7 +111,9 @@ fn escape(string: &str, next: impl Fn(&str) -> Option<usize>) -> Cow<'_, str> {
 }
 
 pub fn attribute_value_escape(string: &str) -> Cow<str> {
-    escape(string, |text| memchr::memchr3(b'<', b'&', b'"', text.as_bytes()))
+    escape(string, |text| {
+        memchr::memchr3(b'<', b'&', b'"', text.as_bytes())
+    })
 }
 
 pub fn content_escape(string: &str) -> Cow<str> {

@@ -51,6 +51,9 @@ mod test {
 
     #[test]
     fn is_invalid_attribute_name() {
-        test_lut_fn(super::RAPIDXML_INVALID_ATTRNAME, super::is_invalid_attribute_name);
+        test_lut_fn(
+            super::RAPIDXML_INVALID_ATTRNAME,
+            super::is_invalid_attribute_name,
+        );
     }
 }

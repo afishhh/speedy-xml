@@ -48,7 +48,8 @@ impl<'a> StartEvent<'a> {
     }
 
     pub fn prefix_position_in(&self, parser: &Reader) -> Option<Range<usize>> {
-        (self.prefix_end > 0).then(|| parser.range_for_ptrs(self.text.as_bytes()[..self.prefix_end].as_ptr_range()))
+        (self.prefix_end > 0)
+            .then(|| parser.range_for_ptrs(self.text.as_bytes()[..self.prefix_end].as_ptr_range()))
     }
 
     pub fn prefixed_name_position_in(&self, parser: &Reader) -> Range<usize> {
@@ -212,7 +213,9 @@ impl ErrorKind {
 
             Self::ExpectedAttributeName => "expected attribute name",
             Self::ExpectedAttributeEq => "expected `=` after attribute name",
-            Self::ExpectedAttributeValue => "expected an attribute value enclosed in either `'` or `\"`",
+            Self::ExpectedAttributeValue => {
+                "expected an attribute value enclosed in either `'` or `\"`"
+            }
             Self::UnclosedAttributeValue => "unclosed attribute value",
             Self::InvalidAttributeValue => "attribute value contains null byte",
 
@@ -319,7 +322,8 @@ impl<'a> ParsingBuffer<'a> {
 
     #[inline]
     fn memmem(&self, needle: &[u8]) -> Option<usize> {
-        memchr::memmem::find(&self.text.as_bytes()[self.current..], needle).map(|value| value + self.current)
+        memchr::memmem::find(&self.text.as_bytes()[self.current..], needle)
+            .map(|value| value + self.current)
     }
 
     #[inline]
@@ -337,7 +341,9 @@ impl<'a> Iterator for Attributes<'a> {
         self.0.skip_whitespace();
 
         let name_start = self.0.current;
-        let name_end = self.0.position_or_end(self.0.current, is_invalid_attribute_name);
+        let name_end = self
+            .0
+            .position_or_end(self.0.current, is_invalid_attribute_name);
         if name_end == self.0.current {
             return None;
         }
@@ -423,7 +429,9 @@ impl<'a> Reader<'a> {
     fn range_for_ptrs(&self, range: Range<*const u8>) -> Range<usize> {
         let self_range = self.buffer.as_bytes().as_ptr_range();
         assert!(
-            self_range.start <= range.start && self_range.end >= range.end && range.start <= range.end,
+            self_range.start <= range.start
+                && self_range.end >= range.end
+                && range.start <= range.end,
             "Parser::range_for_ptrs called with invalid pointer range"
         );
 
@@ -462,7 +470,10 @@ impl<'a> Reader<'a> {
 
             if self.byte(self.buffer.current) != Some(b'=') {
                 self.set_error_state();
-                return Err(Error::new(ErrorKind::ExpectedAttributeEq, name_start..name_end));
+                return Err(Error::new(
+                    ErrorKind::ExpectedAttributeEq,
+                    name_start..name_end,
+                ));
             };
 
             self.buffer.current += 1;
@@ -471,9 +482,15 @@ impl<'a> Reader<'a> {
 
             self.buffer.skip_whitespace();
 
-            let Some(quote) = self.byte(self.buffer.current).filter(|b| [b'\'', b'\"'].contains(b)) else {
+            let Some(quote) = self
+                .byte(self.buffer.current)
+                .filter(|b| [b'\'', b'\"'].contains(b))
+            else {
                 self.set_error_state();
-                return Err(Error::new(ErrorKind::ExpectedAttributeValue, name_start..eq_end));
+                return Err(Error::new(
+                    ErrorKind::ExpectedAttributeValue,
+                    name_start..eq_end,
+                ));
             };
 
             self.buffer.current += 1;
@@ -489,7 +506,10 @@ impl<'a> Reader<'a> {
 
             if self.bytes()[value_end] == b'\0' {
                 self.set_error_state();
-                return Err(Error::new(ErrorKind::InvalidAttributeValue, value_start..value_end + 1));
+                return Err(Error::new(
+                    ErrorKind::InvalidAttributeValue,
+                    value_start..value_end + 1,
+                ));
             }
 
             self.buffer.current = value_end + 1;
@@ -514,7 +534,10 @@ impl<'a> Reader<'a> {
                             }
                             None => {
                                 self.set_error_state();
-                                return Err(Error::new(ErrorKind::DoctypeEof, self.buffer.empty_range_here()));
+                                return Err(Error::new(
+                                    ErrorKind::DoctypeEof,
+                                    self.buffer.empty_range_here(),
+                                ));
                             }
                         }
                     }
@@ -525,17 +548,29 @@ impl<'a> Reader<'a> {
                 }
                 None => {
                     self.set_error_state();
-                    return Err(Error::new(ErrorKind::DoctypeEof, self.buffer.empty_range_here()));
+                    return Err(Error::new(
+                        ErrorKind::DoctypeEof,
+                        self.buffer.empty_range_here(),
+                    ));
                 }
             }
         }
     }
 
-    fn take_prefixed_name(&mut self, start: usize, prefix_end_default: usize) -> Result<(usize, usize), Error> {
-        let first_end = self.buffer.position_or_end(self.buffer.current, is_invalid_name);
+    fn take_prefixed_name(
+        &mut self,
+        start: usize,
+        prefix_end_default: usize,
+    ) -> Result<(usize, usize), Error> {
+        let first_end = self
+            .buffer
+            .position_or_end(self.buffer.current, is_invalid_name);
         if first_end == self.buffer.current {
             self.set_error_state();
-            return Err(Error::new(ErrorKind::ExpectedElementName, start..self.buffer.current));
+            return Err(Error::new(
+                ErrorKind::ExpectedElementName,
+                start..self.buffer.current,
+            ));
         }
 
         self.buffer.current = first_end;
@@ -543,10 +578,15 @@ impl<'a> Reader<'a> {
         let prefix_end;
         let name_end;
         if self.buffer.byte(self.buffer.current) == Some(b':') {
-            let second_end = self.buffer.position_or_end(self.buffer.current + 1, is_invalid_name);
+            let second_end = self
+                .buffer
+                .position_or_end(self.buffer.current + 1, is_invalid_name);
             if second_end == self.buffer.current {
                 self.set_error_state();
-                return Err(Error::new(ErrorKind::ExpectedElementName, start..self.buffer.current));
+                return Err(Error::new(
+                    ErrorKind::ExpectedElementName,
+                    start..self.buffer.current,
+                ));
             }
             self.buffer.current = second_end;
             prefix_end = first_end;
@@ -563,10 +603,12 @@ impl<'a> Reader<'a> {
         let start = self.buffer.current;
         self.buffer.current += 1;
 
-        match self
-            .byte(self.buffer.current)
-            .ok_or_else(|| Error::new(ErrorKind::InvalidElementName, self.buffer.empty_range_here()))?
-        {
+        match self.byte(self.buffer.current).ok_or_else(|| {
+            Error::new(
+                ErrorKind::InvalidElementName,
+                self.buffer.empty_range_here(),
+            )
+        })? {
             b'?' => {
                 // xml declaration or processing instruction
                 // since both flags are disabled by default, they are treated the same.
@@ -576,8 +618,10 @@ impl<'a> Reader<'a> {
                 //       <?hello something="?>"?>
                 //       But RapidXML doesn't care about this.
                 let Some(end) = self.buffer.memmem(b"?>") else {
-                    let name_range =
-                        self.buffer.current + 1..self.buffer.position_or_end(self.buffer.current + 1, is_invalid_name);
+                    let name_range = self.buffer.current + 1
+                        ..self
+                            .buffer
+                            .position_or_end(self.buffer.current + 1, is_invalid_name);
                     self.set_error_state();
                     return Err(Error::new(ErrorKind::UnclosedPITag, name_range));
                 };
@@ -615,7 +659,9 @@ impl<'a> Reader<'a> {
                 }
                 Some(b'D')
                     if self.bytes()[self.buffer.current + 2..].starts_with(b"OCTYPE")
-                        && self.byte(self.buffer.current + 8).is_some_and(is_whitespace) =>
+                        && self
+                            .byte(self.buffer.current + 8)
+                            .is_some_and(is_whitespace) =>
                 {
                     self.buffer.current += 9;
                     self.skip_doctype()?;
@@ -792,7 +838,8 @@ mod test {
 
     #[test]
     fn element() {
-        let code = "   <hello attr =  \"value\" 0ther4ttr=\t'val&apos;ue'>con&#x20;ten&#32;t</hello>   ";
+        let code =
+            "   <hello attr =  \"value\" 0ther4ttr=\t'val&apos;ue'>con&#x20;ten&#32;t</hello>   ";
         let mut reader = Reader::new(code);
 
         {
@@ -878,8 +925,14 @@ mod test {
 
         {
             let text = unwrap!(reader.next(), Some(Ok(Text)));
-            assert_eq!(text.content(), "\n                one is < two\n            ");
-            assert_eq!(text.raw_content(), "\n                one is &lt; two\n            ");
+            assert_eq!(
+                text.content(),
+                "\n                one is < two\n            "
+            );
+            assert_eq!(
+                text.raw_content(),
+                "\n                one is &lt; two\n            "
+            );
         }
 
         {
