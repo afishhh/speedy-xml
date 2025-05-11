@@ -20,6 +20,8 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy)]
+/// An event emitted by start tags like `<hello name="value">` or empty tags like
+/// `<hello name="value"/>`.
 pub struct StartEvent<'a> {
     text: &'a str,
     prefix_end: usize,
@@ -27,41 +29,72 @@ pub struct StartEvent<'a> {
 }
 
 impl<'a> StartEvent<'a> {
+    /// Returns the prefix component of this event's prefixed name, if present.
     pub fn prefix(&self) -> Option<&'a str> {
         (self.prefix_end > 0).then(|| &self.text[1..self.prefix_end])
     }
 
+    /// Returns the name component of this event's prefixed name.
     pub fn name(&self) -> &'a str {
         &self.text[self.prefix_end + 1..self.name_end]
     }
 
+    /// Returns `true` if this event is an empty tag.
+    ///
+    /// # Notes
+    ///
+    /// This method is not suitable for checking whether the content of this
+    /// element is empty, it only checks whether the tag itself is of the
+    /// self-closing variety.
     pub fn is_empty(&self) -> bool {
         self.text.as_bytes()[self.text.len() - 2] == b'/'
     }
 
-    pub fn position_in(&self, parser: &Reader) -> Range<usize> {
-        parser.range_for_ptrs(self.text.as_bytes().as_ptr_range())
+    /// Returns the span of this tag in `reader`.
+    ///
+    /// # Panics
+    ///
+    /// May panic if `reader` is not the [`Reader`] that this event originated from.
+    pub fn position_in(&self, reader: &Reader) -> Range<usize> {
+        reader.range_for_ptrs(self.text.as_bytes().as_ptr_range())
     }
 
-    pub fn name_position_in(&self, parser: &Reader) -> Range<usize> {
-        parser.range_for_ptrs(self.name().as_bytes().as_ptr_range())
+    /// Returns the span of this tag's name component in `reader`.
+    ///
+    /// # Panics
+    ///
+    /// May panic if `reader` is not the [`Reader`] that this event originated from.
+    pub fn name_position_in(&self, reader: &Reader) -> Range<usize> {
+        reader.range_for_ptrs(self.name().as_bytes().as_ptr_range())
     }
 
-    pub fn prefix_position_in(&self, parser: &Reader) -> Option<Range<usize>> {
+    /// Returns the span of this tag's prefix component in `reader`.
+    ///
+    /// # Panics
+    ///
+    /// May panic if `reader` is not the [`Reader`] that this event originated from.
+    pub fn prefix_position_in(&self, reader: &Reader) -> Option<Range<usize>> {
         (self.prefix_end > 0)
-            .then(|| parser.range_for_ptrs(self.text.as_bytes()[..self.prefix_end].as_ptr_range()))
+            .then(|| reader.range_for_ptrs(self.text.as_bytes()[..self.prefix_end].as_ptr_range()))
     }
 
-    pub fn prefixed_name_position_in(&self, parser: &Reader) -> Range<usize> {
-        parser.range_for_ptrs(self.text.as_bytes()[1..self.name_end].as_ptr_range())
+    /// Returns the span of this tag's prefixed name in `reader`.
+    ///
+    /// # Panics
+    ///
+    /// May panic if `reader` is not the [`Reader`] that this event originated from.
+    pub fn prefixed_name_position_in(&self, reader: &Reader) -> Range<usize> {
+        reader.range_for_ptrs(self.text.as_bytes()[1..self.name_end].as_ptr_range())
     }
 
+    /// Returns an iterator over the attribute events of this start tag.
     pub fn attributes(&self) -> Attributes<'a> {
         Attributes(ParsingBuffer::new(&self.text[self.name_end..]))
     }
 }
 
 #[derive(Debug, Clone, Copy)]
+/// An event returned by the [`Attributes`] iterator that represents a single attribute on a start tag.
 pub struct AttributeEvent<'a> {
     pub(crate) text: &'a str,
     name_end: usize,
@@ -69,24 +102,38 @@ pub struct AttributeEvent<'a> {
 }
 
 #[repr(u8)]
+/// The quote character an attribute's value can be wrapped in.
 pub enum AttributeQuote {
+    /// A single quote (`'`) character.
     Single = b'\'',
+    /// A double quote (`"`) character.
     Double = b'\"',
 }
 
+impl AttributeQuote {
+    /// Returns the quote character converted to a [`char`].
+    pub fn to_char(self) -> char {
+        self as u8 as char
+    }
+}
+
 impl<'a> AttributeEvent<'a> {
+    /// Returns this attribute's name.
     pub fn name(&self) -> &'a str {
         &self.text[..self.name_end]
     }
 
+    /// Returns this attribute's unescaped value.
     pub fn value(&self) -> Cow<'a, str> {
         unescape(self.raw_value())
     }
 
+    /// Returns this attribute's escaped value.
     pub fn raw_value(&self) -> &'a str {
         &self.text[self.value_start..self.text.len() - 1]
     }
 
+    /// Returns the quote character that this attribute's value was wrapped in.
     pub fn quote(&self) -> AttributeQuote {
         match self.text.bytes().last().unwrap() {
             b'\'' => AttributeQuote::Single,
@@ -95,20 +142,36 @@ impl<'a> AttributeEvent<'a> {
         }
     }
 
+    /// Returns the span of this atribute in `reader`.
+    ///
+    /// # Panics
+    ///
+    /// May panic if `reader` is not the [`Reader`] that this event originated from.
     pub fn position_in(&self, reader: &Reader) -> Range<usize> {
         reader.range_for_ptrs(self.text.as_bytes().as_ptr_range())
     }
 
+    /// Returns the span of this atribute's name in `reader`.
+    ///
+    /// # Panics
+    ///
+    /// May panic if `reader` is not the [`Reader`] that this event originated from.
     pub fn name_position_in(&self, reader: &Reader) -> Range<usize> {
         reader.range_for_ptrs(self.name().as_bytes().as_ptr_range())
     }
 
+    /// Returns the span of this atribute's value in `reader`.
+    ///
+    /// # Panics
+    ///
+    /// May panic if `reader` is not the [`Reader`] that this event originated from.
     pub fn value_position_in(&self, reader: &Reader) -> Range<usize> {
         reader.range_for_ptrs(self.raw_value().as_bytes().as_ptr_range())
     }
 }
 
 #[derive(Debug, Clone, Copy)]
+/// An event emitted by end tags like `</hello>`.
 pub struct EndEvent<'a> {
     text: &'a str,
     prefix_end: usize,
@@ -116,30 +179,39 @@ pub struct EndEvent<'a> {
 }
 
 impl<'a> EndEvent<'a> {
+    /// Returns the prefix component of this event's prefixed name, if present.
     pub fn prefix(&self) -> Option<&'a str> {
         (self.prefix_end != 1).then(|| &self.text[2..self.prefix_end])
     }
 
+    /// Returns the name component of this event's prefixed name, if present.
     pub fn name(&self) -> &'a str {
         debug_assert_ne!(self.prefix_end, 0);
         &self.text[self.prefix_end + 1..self.name_end]
     }
 
-    pub fn position_in(&self, parser: &Reader) -> Range<usize> {
-        parser.range_for_ptrs(self.text.as_bytes().as_ptr_range())
+    /// Returns the span of this event in `reader`.
+    ///
+    /// # Panics
+    ///
+    /// May panic if `reader` is not the [`Reader`] that this event originated from.
+    pub fn position_in(&self, reader: &Reader) -> Range<usize> {
+        reader.range_for_ptrs(self.text.as_bytes().as_ptr_range())
     }
 }
 
 macro_rules! simple_text_event {
     (@mkunescape raw_content) => {
+        /// Returns this event's unescaped content.
         pub fn content(&self) -> Cow<'a, str> {
             unescape(self.raw_content())
         }
     };
     (@mkunescape content) => {};
 
-    ($name: ident$(, $prefix: literal, $suffix: literal)?, $content_type: ident) => {
+    ($name: ident$(, $prefix: literal, $suffix: literal)?, $content_type: ident, $emitted_by_what: literal, $what_content: literal) => {
         #[derive(Debug, Clone, Copy)]
+        #[doc = concat!("An event emitted by ", $emitted_by_what, ".")]
         pub struct $name<'a> {
             pub(crate) text: &'a str,
         }
@@ -147,10 +219,16 @@ macro_rules! simple_text_event {
         impl<'a> $name<'a> {
             simple_text_event!(@mkunescape $content_type);
 
+            #[doc = concat!("Returns this event's ", $what_content, " content.")]
             pub fn $content_type(&self) -> &'a str {
                 &self.text$([$prefix.len()..self.text.len() - $suffix.len()])?
             }
 
+            /// Returns the span of this event in `reader`.
+            ///
+            /// # Panics
+            ///
+            /// May panic if `reader` is not the [`Reader`] that this event originated from.
             pub fn position_in(&self, parser: &Reader) -> Range<usize> {
                 parser.range_for_ptrs(self.text.as_bytes().as_ptr_range())
             }
@@ -158,47 +236,93 @@ macro_rules! simple_text_event {
     };
 }
 
-simple_text_event!(TextEvent, raw_content);
-simple_text_event!(CDataEvent, "<![CDATA[", "]]>", content);
-simple_text_event!(CommentEvent, "<!--", "-->", content);
-simple_text_event!(DoctypeEvent, "<!DOCTYPE ", ">", content);
+simple_text_event!(TextEvent, raw_content, "text content", "escaped");
+simple_text_event!(
+    CDataEvent,
+    "<![CDATA[",
+    "]]>",
+    content,
+    "cdata",
+    "unescaped"
+);
+simple_text_event!(
+    CommentEvent,
+    "<!--",
+    "-->",
+    content,
+    "comments",
+    "unescaped"
+);
+simple_text_event!(
+    DoctypeEvent,
+    "<!DOCTYPE ",
+    ">",
+    content,
+    "doctype declarations",
+    "unescaped"
+);
 
 #[derive(Debug, Clone, Copy)]
+/// An event emitted by the [`Reader`].
 pub enum Event<'a> {
+    /// An event emitted by start tags like `<hello name="value">`.
     Start(StartEvent<'a>),
+    /// An event emitted by end tags like `</hello>`.
     End(EndEvent<'a>),
+    /// An event emitted by empty tags like `<hello name="value"/>`.
     Empty(StartEvent<'a>),
+    /// An event emitted by text content.
     Text(TextEvent<'a>),
+    /// An event emitted by cdata like `<![CDATA[hello]]>`.
     CData(CDataEvent<'a>),
+    /// An event emitted by comments like `<!-- hello -->`.
     Comment(CommentEvent<'a>),
+    /// An event emitted by doctype declarations like `<!DOCTYPE hello>`.
     Doctype(DoctypeEvent<'a>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// An error that may be emitted by [`Reader`] while parsing XML.
 pub enum ErrorKind {
+    /// Top-level text encountered while [`Options`] did not allow it.
     TopLevelText,
+    /// An unclosed processing instruction tag encountered.
     UnclosedPITag,
 
+    /// End of tag was encountered when an element name was expected.
     ExpectedElementName,
+    /// An invalid character was encountered when an element name was expected.
     InvalidElementName,
+    /// An unclosed tag encountered.
     UnclosedElementTag,
+    /// An unclosed empty tag encountered.
     UnclosedEmptyElementTag,
+    /// An unclosed end tag encountered.
     UnclosedEndTag,
+    /// An unclosed element encountered while [`Options`] did not allow it.
     UnclosedElement,
 
-    ExpectedAttributeName,
+    /// Missing `=` character after attribute name.
     ExpectedAttributeEq,
+    /// Missing attribute value after `=` character.
     ExpectedAttributeValue,
+    /// Attribute value contained a null byte.
     InvalidAttributeValue,
+    /// An unclosed attribute value was encountered.
     UnclosedAttributeValue,
 
+    /// An unclosed comment was encountered.
     UnclosedComment,
+    /// An unclosed cdata was encountered.
     UnclosedCData,
+    /// An unclosed non-doctype "<!name >" tag encounteredd.
     UnclosedUnknownSpecial,
+    /// An unclosed doctype tag encountered.
     DoctypeEof,
 }
 
 impl ErrorKind {
+    /// Returns an error message for this error kind.
     pub fn message(&self) -> &'static str {
         match self {
             Self::TopLevelText => "top-level text is forbidden",
@@ -211,7 +335,6 @@ impl ErrorKind {
             Self::UnclosedEndTag => "expected a `>`",
             Self::UnclosedElement => "unclosed element",
 
-            Self::ExpectedAttributeName => "expected attribute name",
             Self::ExpectedAttributeEq => "expected `=` after attribute name",
             Self::ExpectedAttributeValue => {
                 "expected an attribute value enclosed in either `'` or `\"`"
@@ -234,6 +357,7 @@ impl Display for ErrorKind {
 }
 
 #[derive(Clone)]
+/// A spanned XML parse error consisting of a span and an [`ErrorKind`].
 pub struct Error {
     kind: ErrorKind,
     span: Range<usize>,
@@ -244,10 +368,12 @@ impl Error {
         Self { kind, span }
     }
 
+    /// Returns this error's [`ErrorKind`].
     pub fn kind(&self) -> ErrorKind {
         self.kind
     }
 
+    /// Returns this error's span.
     pub fn span(&self) -> Range<usize> {
         self.span.clone()
     }
@@ -332,6 +458,7 @@ impl<'a> ParsingBuffer<'a> {
     }
 }
 
+/// An iterator over the attributes of a [`StartEvent`], obtained via [`StartEvent::attributes`].
 pub struct Attributes<'a>(ParsingBuffer<'a>);
 
 impl<'a> Iterator for Attributes<'a> {
@@ -372,6 +499,7 @@ impl<'a> Iterator for Attributes<'a> {
 
 #[non_exhaustive]
 #[derive(Default, Debug, Clone)]
+/// XML reader options.
 pub struct Options {
     allow_top_level_text: bool,
     allow_unmatched_closing_tags: bool,
@@ -379,22 +507,26 @@ pub struct Options {
 }
 
 impl Options {
+    /// Changes whether top-level text should be allowed during parsing.
     pub fn allow_top_level_text(mut self, value: bool) -> Self {
         self.allow_top_level_text = value;
         self
     }
 
+    /// Changes whether unmatched closing tags should be allowed during parsing.
     pub fn allow_unmatched_closing_tags(mut self, value: bool) -> Self {
         self.allow_unmatched_closing_tags = value;
         self
     }
 
+    /// Changes whether unclosed tags should be allowed during parsing.
     pub fn allow_unclosed_tags(mut self, value: bool) -> Self {
         self.allow_unclosed_tags = value;
         self
     }
 }
 
+/// An XML reader.
 pub struct Reader<'a> {
     buffer: ParsingBuffer<'a>,
     depth: u32,
@@ -402,6 +534,7 @@ pub struct Reader<'a> {
 }
 
 impl<'a> Reader<'a> {
+    /// Creates a new XML reader that will parse the contents of `text`.
     pub fn new(text: &'a str) -> Self {
         Self {
             buffer: ParsingBuffer::new(text),
@@ -410,6 +543,7 @@ impl<'a> Reader<'a> {
         }
     }
 
+    /// Creates a new XML reader that will parse the contents of `text` with the provided [`Options`].
     pub fn with_options(text: &'a str, options: Options) -> Self {
         Self {
             buffer: ParsingBuffer::new(text),
@@ -418,10 +552,12 @@ impl<'a> Reader<'a> {
         }
     }
 
+    /// Returns the string that this reader was originally created with.
     pub fn buffer(&self) -> &'a str {
         self.buffer.text
     }
 
+    /// Returns the element depth the parser is currently at.
     pub fn depth(&self) -> u32 {
         self.depth
     }
@@ -742,12 +878,28 @@ impl<'a> Reader<'a> {
         }
     }
 
+    /// Skips all events until the next end event on the same depth as the last seen start tag.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use speedy_xml::reader::*;
+    /// let mut reader = Reader::new("<event>content</event><another/>");
+    /// assert!(matches!(reader.next(), Some(Ok(Event::Start(..)))));
+    /// assert!(matches!(reader.skip_to_end(), Ok(Some(..))));
+    /// assert!(matches!(reader.next(), Some(Ok(Event::Empty(..)))));
+    /// assert!(matches!(reader.next(), None));
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a parse error occurred.
     pub fn skip_to_end(&mut self) -> Result<Option<EndEvent<'a>>, Error> {
         let end_depth = self.depth;
 
         loop {
             match self.next().transpose()? {
-                Some(Event::End(end)) if self.depth == end_depth => return Ok(Some(end)),
+                Some(Event::End(end)) if self.depth + 1 == end_depth => return Ok(Some(end)),
                 Some(_) => (),
                 None => return Ok(None),
             }

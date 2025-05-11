@@ -1,3 +1,5 @@
+//! Functions for escaping and unescaping text in a RapidXML-compliant way.
+
 use std::borrow::Cow;
 
 use memchr::memchr2;
@@ -30,7 +32,6 @@ fn resolve_entity(text: &str) -> Option<(char, &str)> {
                 next = peek.next()?;
             }
 
-            // TODO: this probably fails on some invalid codepoints that rapidxml would insert
             let result = char::from_u32(code)?;
             // NOTE: We've already consumed a ';' so we return early here.
             return Some((result, peek.as_str()));
@@ -45,8 +46,12 @@ fn resolve_entity(text: &str) -> Option<(char, &str)> {
     }
 }
 
-// This unescapes strings exactly (hopefully) like RapidXML.
-// Ignores all errors and keeps invalid sequences unexpanded.
+/// Unescapes an XML escaped string. Keeps all unresolved entities unexpanded.
+///
+/// # Notes
+///
+/// Unlike RapidXML this will not insert invalid codepoints into the string and will keep
+/// character references that would expand to them unexpanded.
 pub fn unescape(string: &str) -> Cow<str> {
     let mut replaced = String::new();
 
@@ -110,16 +115,19 @@ fn escape(string: &str, next: impl Fn(&str) -> Option<usize>) -> Cow<'_, str> {
     }
 }
 
+/// Escapes the string so that it is a valid `"`-quoted attribute value.
 pub fn attribute_value_escape(string: &str) -> Cow<str> {
     escape(string, |text| {
         memchr::memchr3(b'<', b'&', b'"', text.as_bytes())
     })
 }
 
+/// Escapes the string so that it is valid as a text node.
 pub fn content_escape(string: &str) -> Cow<str> {
     escape(string, |text| memchr::memchr2(b'<', b'&', text.as_bytes()))
 }
 
+/// Escapes the string so that it is valid inside a comment.
 pub fn comment_escape(string: &str) -> Cow<str> {
     escape(string, |text| memchr::memchr(b'>', text.as_bytes()))
 }

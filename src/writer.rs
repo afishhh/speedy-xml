@@ -1,3 +1,5 @@
+//! A simple XML writer.
+
 use std::{
     fmt::{Debug, Display},
     io::Write,
@@ -12,27 +14,42 @@ use crate::{
 };
 
 #[non_exhaustive]
-#[derive(Default)]
+#[derive(Default, Clone)]
+/// XML writer options.
 pub struct Options {
+    /// Whether to ignore all calls to [`Writer::write_comment`] and [`Writer::write_raw_comment`]
     pub omit_comments: bool,
 }
 
+/// An XML writer.
 pub struct Writer<W: Write> {
     writer: W,
     options: Options,
     depth_and_flags: u32,
 }
 
+/// An error that can occur while writing XML.
+///
+/// This is either caused by passing an incorrectly escaped string to
+/// a `write_raw_*` method, writing an attribute with an invalid name or outside of a start tag, or by an underlying I/O error.
 pub enum Error {
+    /// An invalid prefix was passed to [`Writer::write_start`].
     InvalidElementPrefix,
+    /// An invalid name was passed to [`Writer::write_start`].
     InvalidElementName,
+    /// An invalid name was passed to [`Writer::write_attribute`] or [`Writer::write_raw_attribute`].
     InvalidAttributeName,
+    /// An invalid value was passed to [`Writer::write_raw_attribute`].
     InvalidAttributeValue,
+    /// Either [`Writer::write_attribute`] or [`Writer::write_raw_attribute`] was called outside a start tag context.
     AttributeOutsideTag,
-    TopLevelText,
-    ImproperlyEscacped,
+    /// Improperly escaped content was passed to [`Writer::write_raw_comment`] or [`Writer::write_raw_text`].
+    ImproperlyEscaped,
+    /// A string containing `]]>` was passed to [`Writer::write_cdata`].
     InvalidCData,
+    /// A string containing a null byte was passed to [`Writer::write_raw_comment`] or [`Writer::write_raw_text`].
     InvalidValue,
+    /// An I/O error occured.
     Io(std::io::Error),
 }
 
@@ -58,9 +75,8 @@ impl Display for Error {
             Error::InvalidElementName => "invalid element name",
             Error::InvalidAttributeName => "invalid attribute name",
             Error::InvalidAttributeValue => "invalid attribute value",
-            Error::TopLevelText => "top-level text is forbidden",
             Error::AttributeOutsideTag => "attributes are only allowed inside tags",
-            Error::ImproperlyEscacped => "improperly escaped content",
+            Error::ImproperlyEscaped => "improperly escaped content",
             Error::InvalidCData => "cdata content cannot contain `]]>`",
             Error::InvalidValue => "value contains null byte",
             Error::Io(error) => return <std::io::Error as Display>::fmt(error, f),
@@ -75,18 +91,18 @@ impl From<std::io::Error> for Error {
 }
 
 impl<W: Write> Writer<W> {
+    /// Creates a new [`Writer`] that will write into `writer`.
+    #[inline]
     pub fn new(writer: W) -> Self {
-        Self {
-            writer,
-            options: Options::default(),
-            depth_and_flags: 0,
-        }
+        Self::with_options(writer, Options::default())
     }
 
-    pub fn with_options(writer: W) -> Self {
+    /// Creates a new [`Writer`] that will write into `writer` with the specified options.
+    #[inline]
+    pub fn with_options(writer: W, options: Options) -> Self {
         Self {
             writer,
-            options: Options::default(),
+            options,
             depth_and_flags: 0,
         }
     }
@@ -109,9 +125,14 @@ impl<W: Write> Writer<W> {
         Ok(())
     }
 
+    /// Writes a start tag with the specified `prefix` and `name` into the writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the prefix or name is invalid or an underlying I/O error occurs.
     pub fn write_start(&mut self, prefix: Option<&str>, name: &str) -> Result<(), Error> {
         if prefix.is_some_and(|pfx| pfx.bytes().any(is_invalid_name)) {
-            return Err(Error::InvalidElementName);
+            return Err(Error::InvalidElementPrefix);
         }
 
         if name.bytes().any(is_invalid_name) {
@@ -132,6 +153,11 @@ impl<W: Write> Writer<W> {
         Ok(())
     }
 
+    /// Writes an empty tag with the specified `prefix` and `name` into the writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the prefix or name is invalid or an underlying I/O error occurs.
     pub fn write_empty(&mut self, prefix: Option<&str>, name: &str) -> Result<(), Error> {
         if name.bytes().any(is_invalid_name) {
             return Err(Error::InvalidElementName);
@@ -151,6 +177,16 @@ impl<W: Write> Writer<W> {
         Ok(())
     }
 
+    /// Writes an attribute with the specified `prefix` and `name` into the writer.
+    ///
+    /// The attribute will use the double quote as the quote character.
+    /// Does not escape the `value` but will return an error if is improperly escaped.
+    ///
+    /// Must only be called in the context of a start tag, i.e. after a successful [`Self::write_start`], [`Self::write_empty`], [`Self::write_raw_attribute`], or [`Self::write_attribute`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the name or value is invalid or an underlying I/O error occurs.
     pub fn write_raw_attribute(
         &mut self,
         name: &str,
@@ -180,12 +216,30 @@ impl<W: Write> Writer<W> {
         Ok(())
     }
 
+    /// Writes an attribute with the specified `prefix` and `name` into the writer.
+    ///
+    /// The attribute will use the double quote as the quote character.
+    ///
+    /// Must only be called in the context of a start tag, i.e. after a successful [`Self::write_start`], [`Self::write_empty`], [`Self::write_raw_attribute`], or [`Self::write_attribute`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the name is invalid or an underlying I/O error occurs.
     pub fn write_attribute(&mut self, name: &str, value: &str) -> Result<(), Error> {
         let escaped = content_escape(value);
         self.write_raw_attribute(name, AttributeQuote::Double, &escaped)
     }
 
+    /// Writes an end tag with the specified `prefix` and `name` into the writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the prefix or name is invalid or an underlying I/O error occurs.
     pub fn write_end(&mut self, prefix: Option<&str>, name: &str) -> Result<(), Error> {
+        if prefix.is_some_and(|pfx| pfx.bytes().any(is_invalid_name)) {
+            return Err(Error::InvalidElementPrefix);
+        }
+
         if name.bytes().any(is_invalid_name) {
             return Err(Error::InvalidElementName);
         }
@@ -212,10 +266,15 @@ impl<W: Write> Writer<W> {
         self.writer.write_all(text.as_bytes())
     }
 
+    /// Writes text content into the writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the content is improperly escaped or contains a null byte or an underlying I/O error occurs.
     pub fn write_raw_text(&mut self, text: &str) -> Result<(), Error> {
         if let Some(idx) = memchr::memchr2(b'\0', b'<', text.as_bytes()) {
             return Err(if text.as_bytes()[idx] == b'<' {
-                Error::ImproperlyEscacped
+                Error::ImproperlyEscaped
             } else {
                 Error::InvalidValue
             });
@@ -224,6 +283,15 @@ impl<W: Write> Writer<W> {
         self.write_raw_text_unchecked(text).map_err(Into::into)
     }
 
+    /// Writes text content into the writer.
+    ///
+    /// # Notes
+    ///
+    /// Currently this function does not check for null bytes in the string. This may change in a future release.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if an underlying I/O error occurs.
     pub fn write_text(&mut self, content: &str) -> Result<(), Error> {
         let escaped = content_escape(content);
         self.write_raw_text_unchecked(&escaped).map_err(Into::into)
@@ -237,6 +305,15 @@ impl<W: Write> Writer<W> {
         self.writer.write_all(b"]]>")
     }
 
+    /// Writes cdata into the writer.
+    ///
+    /// # Notes
+    ///
+    /// Currently this function does not check for null bytes in the string. This may change in a future release.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the string contains `]]>` or an underlying I/O error occurs.
     pub fn write_cdata(&mut self, text: &str) -> Result<(), Error> {
         if memchr::memmem::find(text.as_bytes(), b"]]>").is_some() {
             return Err(Error::InvalidCData);
@@ -248,29 +325,61 @@ impl<W: Write> Writer<W> {
     fn write_raw_comment_unchecked(&mut self, text: &str) -> std::io::Result<()> {
         self.ensure_tag_closed()?;
 
+        self.writer.write_all(b"<!--")?;
+        self.writer.write_all(text.as_bytes())?;
+        self.writer.write_all(b"-->")?;
+
+        Ok(())
+    }
+
+    /// Writes a comment into the writer.
+    ///
+    /// # Notes
+    ///
+    /// Currently this function does not check for null bytes in the string. This may change in a future release.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the string contains `-->` or an underlying I/O error occurs.
+    pub fn write_raw_comment(&mut self, text: &str) -> Result<(), Error> {
+        if memchr::memmem::find(text.as_bytes(), b"-->").is_some() {
+            return Err(Error::ImproperlyEscaped);
+        }
+
         if !self.options.omit_comments {
-            self.writer.write_all(b"<!--")?;
-            self.writer.write_all(text.as_bytes())?;
-            self.writer.write_all(b"-->")?;
+            self.write_raw_comment_unchecked(text)?
         }
 
         Ok(())
     }
 
-    pub fn write_raw_comment(&mut self, text: &str) -> Result<(), Error> {
-        if memchr::memmem::find(text.as_bytes(), b"-->").is_some() {
-            return Err(Error::ImproperlyEscacped);
+    /// Writes a comment into the writer.
+    ///
+    /// # Notes
+    ///
+    /// Currently this function does not check for null bytes in the string. This may change in a future release.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if an underlying I/O error occurs.
+    pub fn write_comment(&mut self, content: &str) -> Result<(), Error> {
+        if !self.options.omit_comments {
+            let escaped = comment_escape(content);
+            self.write_raw_comment_unchecked(&escaped)?
         }
 
-        self.write_raw_comment_unchecked(text).map_err(Into::into)
+        Ok(())
     }
 
-    pub fn write_comment(&mut self, content: &str) -> Result<(), Error> {
-        let escaped = comment_escape(content);
-        self.write_raw_comment_unchecked(&escaped)
-            .map_err(Into::into)
-    }
-
+    /// Writes a comment into the writer.
+    ///
+    /// # Notes
+    ///
+    /// Currently this function does not check for null bytes in the string. This may change in a future release.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if an underlying I/O error occurs.
     pub fn write_attribute_event(&mut self, attr: &AttributeEvent) -> Result<(), Error> {
         if self.depth_and_flags & 1 == 0 {
             return Err(Error::AttributeOutsideTag);
@@ -286,6 +395,11 @@ impl<W: Write> Writer<W> {
         Ok(())
     }
 
+    /// Writes an event into the writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if an underlying I/O error occurs.
     pub fn write_event(&mut self, event: &reader::Event) -> Result<(), Error> {
         match event {
             reader::Event::Start(start) | reader::Event::Empty(start) => {
@@ -315,20 +429,32 @@ impl<W: Write> Writer<W> {
         }
     }
 
+    /// Returns a reference to the underlying writer.
     pub fn inner_ref(&self) -> &W {
         &self.writer
     }
 
+    /// Returns a mutable reference to the underlying writer.
     pub fn inner_mut(&mut self) -> &mut W {
         &mut self.writer
     }
 
+    /// If the writer is currently in a start tag context, ensures that the tag is closed, and then returns the underlying writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if an underlying I/O error occurred.
     pub fn finish(mut self) -> std::io::Result<W> {
         self.ensure_tag_closed()?;
 
         Ok(self.writer)
     }
 
+    /// If the writer is currently in a start tag context, ensures that the tag is closed, and then flushes the underlying writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if an underlying I/O error occurred.
     pub fn flush(&mut self) -> std::io::Result<()> {
         self.ensure_tag_closed()?;
 
